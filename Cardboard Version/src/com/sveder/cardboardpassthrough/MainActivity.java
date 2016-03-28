@@ -17,9 +17,18 @@
 package com.sveder.cardboardpassthrough;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.ImageFormat;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.graphics.SurfaceTexture.OnFrameAvailableListener;
+import android.graphics.YuvImage;
 import android.hardware.Camera;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.os.Bundle;
@@ -31,6 +40,7 @@ import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -42,7 +52,7 @@ import java.nio.ShortBuffer;
 /**
  * A Cardboard sample application.
  */
-public class MainActivity extends CardboardActivity implements CardboardView.StereoRenderer, OnFrameAvailableListener {
+public class MainActivity extends CardboardActivity implements CardboardView.StereoRenderer, OnFrameAvailableListener, SensorEventListener {
 
     private static final String TAG = "MainActivity";
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
@@ -132,6 +142,14 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 	private SurfaceTexture surface;
 	private float[] mView;
 	private float[] mCamera;
+	private SensorManager mSensorManager;
+	private Sensor mAccel;
+	protected boolean mAutoFocus;
+	private boolean mInvalidate;
+	private boolean mInitialized;
+	private float mLastX;
+	private float mLastY;
+	private float mLastZ;
 
 	public void startCamera(int texture)
     {
@@ -144,6 +162,16 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         {
             camera.setPreviewTexture(surface);
             camera.startPreview();
+            //Set Auto focus callback
+            camera.autoFocus(new Camera.AutoFocusCallback() {
+				
+				@Override
+				public void onAutoFocus(boolean success, Camera camera) {
+					// TODO Auto-generated method stub
+					//camera.setOneShotPreviewCallback(previewCallback);
+					mAutoFocus = true;
+				}
+			});
         }
         catch (IOException ioe)
         {
@@ -237,7 +265,25 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 //
         mOverlayView = (CardboardOverlayView) findViewById(R.id.overlay);
         mOverlayView.show3DToast("Pull the magnet when you find an object.");
+        
+        // the accelerometer is used for autofocus
+        mSensorManager = (SensorManager) getSystemService(Context.
+                SENSOR_SERVICE);
+        // Get accelerometer from SensorManger
+        mAccel = mSensorManager.getDefaultSensor(Sensor.
+                TYPE_ACCELEROMETER);
     }
+    @Override
+    protected void onResume() {
+    	super.onRestart();
+    	mSensorManager.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_UI);
+    }
+    @Override
+    protected void onPause(){
+    	super.onPause();
+    	mSensorManager.unregisterListener(this);
+    }
+
 
     @Override
     public void onRendererShutdown() {
@@ -568,6 +614,56 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 //        // Always give user feedback
 //        mVibrator.vibrate(50);
     }
+
+	@Override
+	public void onSensorChanged(SensorEvent event) {
+		// TODO Auto-generated method stub
+	    if (mInvalidate == true){
+	        mOverlayView.invalidate();
+	        mInvalidate = false;
+	    }
+	    float x = event.values[0];
+	    float y = event.values[1];
+	    float z = event.values[2];
+	    
+	    
+	    if (!mInitialized){
+	        mLastX = x;
+	        mLastY = y;
+	        mLastZ = z;
+	        mInitialized = true;
+	    }
+	    float deltaX  = Math.abs(mLastX -x);
+	    float deltaY = Math.abs(mLastY -y);
+	    float deltaZ = Math.abs(mLastZ -z);
+	 
+	    if ((deltaX  > 1. || deltaY > 1. || deltaZ > 1. ) && camera!=null ){ //AUTOFOCUS (while it is not autofocusing)
+	        mAutoFocus = false;
+	        
+	        Log.d("Jerry Says","Sensor Changed! Dx, Dy, Dz =" + String.valueOf(deltaX)+", "+String.valueOf(deltaY)+", "+String.valueOf(deltaZ));
+	        
+	        camera.autoFocus(new Camera.AutoFocusCallback() {
+				
+				@Override
+				public void onAutoFocus(boolean success, Camera camera) {
+					// TODO Auto-generated method stub
+					Log.d("Jerry Says","auto focus!");
+				}
+			});
+	        
+	    }
+	 
+	    mLastX = x;
+	    mLastY = y;
+	    mLastZ = z;
+		
+	}
+
+	@Override
+	public void onAccuracyChanged(Sensor sensor, int accuracy) {
+		// TODO Auto-generated method stub
+		
+	}
 
 
 //    /**
